@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <queue>
 #include <algorithm>
+#include <fstream>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -22,6 +23,7 @@
 #define SERVER_PORT 8080
 #define MAXLINE 1024
 #define BROADCAST_PORT 8888
+#define TASK_FILE "tasks.txt"
 
 enum TaskStatus {
     TODO,
@@ -68,7 +70,11 @@ std::string taskStatusToString(TaskStatus status);
 TaskStatus stringToTaskStatus(std::string statusText);
 void syncTasksToPeer(std::string peerIP);
 void startDiscoveryListener();
+void initTasksList();
+bool allTasksAreDone();
+void updateTaskFileIfFinished();
 
+// This changes a task status into words so it can be sent in a message.
 std::string taskStatusToString(TaskStatus status)
 {
     if (status == CLAIMED)
@@ -83,6 +89,7 @@ std::string taskStatusToString(TaskStatus status)
     return "TODO";
 }
 
+// This changes words from a message back into a task status.
 TaskStatus stringToTaskStatus(std::string statusText)
 {
     if (statusText == "CLAIMED")
@@ -188,6 +195,7 @@ void broadcastDiscovery()
     closesocket(sock);
 }
 
+// This asks the user for this computer's IP address.
 void EnterIpAddress()
 {
     std::string ip;
@@ -197,6 +205,7 @@ void EnterIpAddress()
    
 }
 
+// This listens for HELLO messages from other computers on the network.
 void startDiscoveryListener()
 {
     SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -270,6 +279,37 @@ void startDiscoveryListener()
     }
 
     closesocket(sock);
+}
+
+// This checks if every task in the list is done.
+bool allTasksAreDone()
+{
+    for (int i = 0; i < tasks.size(); i++)
+    {
+        if (tasks[i].status != DONE)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// This changes the task file after all tasks are completed.
+void updateTaskFileIfFinished()
+{
+    if (!allTasksAreDone())
+    {
+        return;
+    }
+
+    std::ofstream taskFile(TASK_FILE);
+    if (taskFile.is_open())
+    {
+        taskFile << "Completed all tasks." << std::endl;
+        taskFile.close();
+        printf("Updated task file: completed all tasks.\n");
+    }
 }
 
 
@@ -394,7 +434,7 @@ void startTcpServer()
                         break;
                     }
                 }
-                
+                updateTaskFileIfFinished();
             }
             if (message.rfind("TASK_LIST", 0) == 0)
             {
@@ -430,6 +470,7 @@ void startTcpServer()
                     }
 
                     printf("Task list synced from another peer.\n");
+                    updateTaskFileIfFinished();
                 }
             }
         }
@@ -478,6 +519,7 @@ void workerLoop()
 
             newTask.status = TaskStatus::DONE;
             printf("Task %d completed.\n", newTask.id);
+            updateTaskFileIfFinished();
         }
     }
 }
@@ -547,20 +589,41 @@ void broadcastMessageThread()
         }
     }
 }
-//Fake Task LIst initialization
+// Reads the tasks from the text file and puts them into the task list.
 void initTasksList()
 {
-    for (int i = 0; i < 20; ++i)
+    tasks.clear();
+
+    std::ifstream taskFile(TASK_FILE);
+    if (!taskFile.is_open())
     {
+        printf("Could not open %s\n", TASK_FILE);
+        return;
+    }
+
+    std::string line;
+    int taskId = 1;
+
+    while (std::getline(taskFile, line))
+    {
+        if (line == "")
+        {
+            continue;
+        }
+
         Task task;
-        task.id = i + 1;
-        task.data = "Task data " + std::to_string(i + 1);
+        task.id = taskId;
+        task.data = line;
         task.status = TODO;
         tasks.push_back(task);
+        taskId++;
     }
+
+    taskFile.close();
 }
 
 
+// This starts the program and runs all the main threads.
 int main() {
     WSADATA wsaData;
     WSAStartup(MAKEWORD(2,2), &wsaData);
